@@ -1,3 +1,3 @@
 streamlit-influx-proyectofinal/
   app.py
-  requirements.txt 
+  pip freeze > requirements.txt 
