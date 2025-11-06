@@ -62,8 +62,8 @@ df_mpu = query_data("mpu6050", fields_mpu)
 if not df_mpu.empty:
     fig_mpu = px.line(df_mpu, x="time", y=fields_mpu, title="Lecturas MPU6050")
     st.plotly_chart(fig_mpu, use_container_width=True)
-
-   st.write("*Métricas MPU6050*")
+    
+    st.write("*Métricas MPU6050*")
     st.dataframe(df_mpu.describe().T[["mean", "min", "max"]])
 else:
     st.warning("No hay datos disponibles del sensor MPU6050 para este rango de tiempo.")
