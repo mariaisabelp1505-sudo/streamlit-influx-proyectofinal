@@ -1,5 +1,5 @@
 streamlit
 influxdb-client
-pandas
 plotly
+pandas
 matplotlib
