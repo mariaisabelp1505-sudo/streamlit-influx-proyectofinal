@@ -90,40 +90,61 @@ def obtener_estado_variable(valor, variable):
             return 'Crítico', 'status-critical'
     
     return 'Desconocido', 'status-warning'
+st.sidebar.markdown("---")
+st.sidebar.markdown("### 📊 Info del Sistema")
+st.sidebar.info(f"Total de registros: {len(df):,}")
+st.sidebar.info(f"Última actualización: {datetime.now().strftime('%H:%M:%S')}")
 
-# Título principal
-st.markdown('<h1 class="main-header">🏭 Dashboard de Control Industrial</h1>', unsafe_allow_html=True)
+if auto_refresh:
+    time.sleep(1)
+    st.rerun()
 
-# Cargar datos
-df = generar_datos_industriales()
+# Filtrar datos según la fecha seleccionada
+datos_filtrados = df[df['Fecha'].dt.date == fecha_seleccionada]
 
-# Sidebar para controles
-st.sidebar.title("⚙️ Controles del Sistema")
+if not datos_filtrados.empty:
+    # Estado general del sistema
+    st.markdown("## 🚦 Estado General del Sistema")
+    
+    col_estado1, col_estado2, col_estado3, col_estado4 = st.columns(4)
+    
+    with col_estado1:
+        st.markdown('<div class="alert-low"><strong>🟢 Sistemas Operativos</strong><br>6/8 variables normales</div>', unsafe_allow_html=True)
+    
+    with col_estado2:
+        st.markdown('<div class="alert-medium"><strong>🟡 Advertencias</strong><br>2 variables en alerta</div>', unsafe_allow_html=True)
+    
+    with col_estado3:
+        st.markdown('<div class="alert-low"><strong>⚡ Eficiencia</strong><br>87.3% promedio</div>', unsafe_allow_html=True)
+    
+    with col_estado4:
+        st.markdown('<div class="alert-low"><strong>🔧 Uptime</strong><br>99.2% disponibilidad</div>', unsafe_allow_html=True)
 
-# Selector de fecha
-fecha_min = df['Fecha'].min().date()
-fecha_max = df['Fecha'].max().date()
-fecha_actual = datetime.now().date()
+    # Métricas en tiempo real
+    st.markdown("## 📊 Métricas en Tiempo Real")
+    
+    cols = st.columns(4)
+    valores_actuales = datos_filtrados.iloc[-1]  # Último valor del día
+    
+    metricas = [
+        ("Temperatura Reactor", "Temperatura_Reactor_1", "°C"),
+        ("Presión Sistema", "Presion_Sistema", "Bar"),
+        ("Flujo Entrada", "Flujo_Entrada", "L/min"),
+        ("Nivel Tanque", "Nivel_Tanque", "%")
+    ]
+    
+    for i, (nombre, variable, unidad) in enumerate(metricas):
+        if variable in valores_actuales:
+            valor = valores_actuales[variable]
+            estado, clase_css = obtener_estado_variable(valor, variable)
+            
+            with cols[i]:
+                st.metric(
+                    label=f"{nombre}",
+                    value=f"{valor:.1f} {unidad}",
+                    delta=f"{np.random.uniform(-2, 2):.1f}"
+                )
+                st.markdown(f'<div class="{clase_css}">{estado}</div>', unsafe_allow_html=True)
 
-# Si la fecha actual está fuera del rango, usar la fecha máxima disponible
-if fecha_actual < fecha_min or fecha_actual > fecha_max:
-    fecha_por_defecto = fecha_max
-else:
-    fecha_por_defecto = fecha_actual
-
-fecha_seleccionada = st.sidebar.date_input(
-    "Seleccionar Fecha",
-    value=fecha_por_defecto,
-    min_value=fecha_min,
-    max_value=fecha_max
-)
-
-# Selector de variables
-variables_disponibles = [col for col in df.columns if col != 'Fecha']
-variables_seleccionadas = st.sidebar.multiselect(
-    "Variables a Mostrar",
-    variables_disponibles,
-    default=variables_disponibles[:4]
-)
 
 
