@@ -1,124 +1,70 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
-from datetime import datetime
-import altair as alt
-import time
+import plotly.express as px
+from influxdb_client import InfluxDBClient
 
-# --- CONFIGURACIÓN DE LA PÁGINA ---
-st.set_page_config(page_title="Dashboard Industrial", page_icon="🏭", layout="wide")
+# --- Parámetros de conexión ---
+INFLUXDB_URL = st.secrets["INFLUXDB_URL"]
+INFLUXDB_TOKEN = st.secrets["INFLUXDB_TOKEN"]
+INFLUXDB_ORG = st.secrets["INFLUXDB_ORG"]
+INFLUXDB_BUCKET = st.secrets["INFLUXDB_BUCKET"]
 
-# --- CSS PERSONALIZADO ---
-st.markdown("""
-<style>
-.main-header {
-    font-size: 2.3rem;
-    font-weight: bold;
-    color: #1f77b4;
-    text-align: center;
-    margin-bottom: 1.5rem;
-    text-shadow: 2px 2px 4px rgba(0,0,0,0.15);
-}
-.metric-card {
-    background: #ffffff;
-    border-radius: 12px;
-    padding: 1rem;
-    text-align: center;
-    box-shadow: 0 3px 8px rgba(0,0,0,0.1);
-}
-.status-good {
-    background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
-    color: white; border-radius: 6px; padding: 0.3rem; font-weight:bold;
-}
-.status-warning {
-    background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
-    color: white; border-radius: 6px; padding: 0.3rem; font-weight:bold;
-}
-.status-critical {
-    background: linear-gradient(135deg, #ff9a9e 0%, #fecfef 100%);
-    color: white; border-radius: 6px; padding: 0.3rem; font-weight:bold;
-}
-</style>
-""", unsafe_allow_html=True)
+# --- Inicializar cliente ---
+client = InfluxDBClient(url=INFLUXDB_URL, token=INFLUXDB_TOKEN, org=INFLUXDB_ORG)
+query_api = client.query_api()
 
-# --- FUNCIÓN PARA DATOS SIMULADOS ---
-@st.cache_data
-def generar_datos():
-    fechas = pd.date_range('2024-09-20', '2024-09-22 23:59', freq='30min')
-    np.random.seed(42)
-    return pd.DataFrame({
-        'Fecha': fechas,
-        'Temperatura_Reactor_1': 250 + np.random.normal(0, 10, len(fechas)),
-        'Presion_Sistema': 15 + np.random.normal(0, 2, len(fechas)),
-        'Flujo_Entrada': 100 + np.random.normal(0, 5, len(fechas)),
-        'Nivel_Tanque': 75 + np.random.normal(0, 8, len(fechas)),
-        'Eficiencia_Proceso': 85 + np.random.normal(0, 5, len(fechas))
-    })
+# --- Configuración lateral ---
+st.sidebar.header("Filtros")
+days = st.sidebar.slider("Rango de tiempo (días)", 1, 30, 3)
 
-df = generar_datos()
+st.title(" Tablero de Monitoreo Industrial")
+st.write("Datos de sensores *DHT22* y *MPU6050*")
+# --- Función para consultar datos ---
+def query_data(measurement, fields):
+    fields_filter = " or ".join([f'r._field == "{f}"' for f in fields])
+    query = f'''
+    from(bucket: "{INFLUXDB_BUCKET}")
+      |> range(start: -{days}d)
+      |> filter(fn: (r) => r._measurement == "{measurement}")
+      |> filter(fn: (r) => {fields_filter})
+    '''
+    tables = query_api.query(org=INFLUXDB_ORG, query=query)
+    data = []
+    for table in tables:
+        for record in table.records:
+            data.append((record.get_time(), record.get_field(), record.get_value()))
 
-# --- SIDEBAR ---
-st.sidebar.header("⚙️ Controles del Sistema")
-fecha = st.sidebar.date_input("📅 Selecciona Fecha", datetime(2024,9,21))
-variables = st.sidebar.multiselect(
-    "📊 Variables a visualizar",
-    [c for c in df.columns if c != "Fecha"],
-    default=['Temperatura_Reactor_1', 'Presion_Sistema', 'Flujo_Entrada', 'Nivel_Tanque']
-)
-rango = st.sidebar.slider("⏱️ Rango de Horas", 0, 24, (8, 20))
-auto_refresh = st.sidebar.checkbox("🔄 Actualizar automáticamente (cada 30s)")
+    if not data:
+        return pd.DataFrame()
+    
+    df = pd.DataFrame(data, columns=["time", "field", "value"])
+    df = df.pivot(index="time", columns="field", values="value").reset_index()
+    return df
 
-if auto_refresh:
-    time.sleep(1)
-    st.rerun()
+# --- Sensor DHT22 ---
+st.subheader(" Sensor DHT22 (Temperatura y Humedad)")
+fields_dht = ["temperatura", "humedad", "sensacion_termica"]
+df_dht = query_data("studio-dht22", fields_dht)
 
-st.sidebar.markdown("---")
-st.sidebar.success("🟢 Sistema en línea")
-st.sidebar.info(f"Última actualización: {datetime.now().strftime('%H:%M:%S')}")
+if not df_dht.empty:
+    fig_dht = px.line(df_dht, x="time", y=fields_dht, title="Lecturas DHT22")
+    st.plotly_chart(fig_dht, use_container_width=True)
 
-# --- CABECERA ---
-st.markdown('<h1 class="main-header">🏭 Dashboard de Monitoreo Industrial</h1>', unsafe_allow_html=True)
-st.divider()
+    st.write("*Métricas DHT22*")
+    st.dataframe(df_dht.describe().T[["mean", "min", "max"]])
+else:
+    st.warning("No hay datos disponibles del sensor DHT22 para este rango de tiempo.")
 
-# --- FILTRO DE DATOS ---
-datos_filtrados = df[df['Fecha'].dt.date == fecha]
+# --- Sensor MPU6050 ---
+st.subheader(" Sensor MPU6050 (Vibraciones y Aceleración)")
+fields_mpu = ["accel_x", "accel_y", "accel_z"]
+df_mpu = query_data("mpu6050", fields_mpu)
 
-# --- MÉTRICAS PRINCIPALES ---
-st.markdown("## 📊 Métricas en Tiempo Real")
-cols = st.columns(4)
-metricas = [
-    ("🌡️ Temperatura Reactor", "Temperatura_Reactor_1", "°C"),
-    ("⚙️ Presión Sistema", "Presion_Sistema", "Bar"),
-    ("💧 Flujo Entrada", "Flujo_Entrada", "L/min"),
-    ("📦 Nivel Tanque", "Nivel_Tanque", "%")
-]
+if not df_mpu.empty:
+    fig_mpu = px.line(df_mpu, x="time", y=fields_mpu, title="Lecturas MPU6050")
+    st.plotly_chart(fig_mpu, use_container_width=True)
 
-valores_actuales = datos_filtrados.iloc[-1] if not datos_filtrados.empty else None
-
-for i, (titulo, var, unidad) in enumerate(metricas):
-    with cols[i]:
-        if valores_actuales is not None:
-            valor = valores_actuales[var]
-            delta = np.random.uniform(-2, 2)
-            # estado visual
-            if var == 'Temperatura_Reactor_1':
-                clase = 'status-good' if 240 <= valor <= 260 else 'status-warning'
-            elif var == 'Presion_Sistema':
-                clase = 'status-good' if 12 <= valor <= 18 else 'status-warning'
-            else:
-                clase = 'status-warning' if np.random.rand() > 0.5 else 'status-good'
-
-            st.metric(titulo, f"{valor:.1f} {unidad}", f"{delta:+.1f}")
-            st.markdown(f'<div class="{clase}">{"Bueno" if "good" in clase else "Advertencia"}</div>', unsafe_allow_html=True)
-        else:
-            st.info("Sin datos")
-
-st.divider()
-
-# --- GRÁFICOS ---
-with st.expander("📈 Tendencias de Variables", expanded=True):
-
-
-
-
-
+    st.write("*Métricas MPU6050*")
+    st.dataframe(df_mpu.describe().T[["mean", "min", "max"]])
+else:
+    st.warning("No hay datos disponibles del sensor MPU6050 para este rango de tiempo.")
